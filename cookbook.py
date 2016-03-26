@@ -1,3 +1,5 @@
+# full writeup: http://rh0gue.com/bkpctf16/cookbook
+
 #!/usr/bin/python
 import os, sys, socket
 import struct
