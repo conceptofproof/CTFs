@@ -1,0 +1,285 @@
+gdb-peda$ checksec
+CANARY    : disabled
+FORTIFY   : disabled
+NX        : ENABLED
+PIE       : ENABLED
+RELRO     : FULL
+
+
+
+scanf("%s",0x555555755040)
+
+b *0x0000555555554935
+b *0x55555555428b
+
+rax = 0xa, rdi =0x555555554000, rsi = 0x1000, 0x7
+syscall
+
+Good!
+
+
+gdb-peda$ x/32xg 0x55555575504f
+0x55555575504f: 0x0041414141414141      0x0000000000000000
+
+16 chars
+
+AAAAAAAAAAAGood!
+
+mprotect(0x555555554000, 0x100, 0x7)
+
+
+gdb-peda$ x/s 0x555555554858
+0x555555554858: "Good!\n"a
+
+
+ 0x555555554867:      add    rbx,0x2007e1
+=> 0x55555555486e:      movdqu xmm1,XMMWORD PTR [rbx] <-- rbx = RBX: 0x555555755040 ('A' <repeats 11 times>, "Good!")
+   0x555555554872:      movdqu xmm0,XMMWORD PTR [rsi] <-- rsi = RSI: 0x555555554798 --> 0xfffe07e803fdc148 
+   0x555555554876:      pxor   xmm1,xmm0
+   0x55555555487a:      push   0xa
+   0x55555555487c:      pop    rdi
+
+
+gdb-peda$ x/10xg 0x555555755040
+0x555555755040: 0x4141414141414141      0x21646f6f47414141
+0x555555755050: 0x0000000000000000      0x0000000000000000
+
+gdb-peda$ x/10xg 0x555555554798
+0x555555554798: 0xfffe07e803fdc148      0xdb312074ed8548ff
+0x5555555547a8: 0x0000000000841f0f      0x8944f6894cea894c
+0x5555555547b8: 0xc38348dc14ff41ff      0x8348ea75dd394801
+0x5555555547c8: 0x5d415c415d5b08c4      0x2e6690c35f415e41
+0x5555555547d8: 0x0000000000841f0f      0x08ec83480000c3f3
+
+
+
+gdb-peda$ x/30i 0x555555554867
+   0x555555554867:      add    rbx,0x2007e1
+   0x55555555486e:      movdqu xmm1,XMMWORD PTR [rbx]
+=> 0x555555554872:      movdqu xmm0,XMMWORD PTR [rsi]
+   0x555555554876:      pxor   xmm1,xmm0
+   0x55555555487a:      push   0xa
+   0x55555555487c:      pop    rdi
+   0x55555555487d:      add    rsi,0x10
+   0x555555554881:      movdqu xmm0,XMMWORD PTR [rsi]
+   0x555555554885:      dec    edi
+   0x555555554887:      test   edi,edi
+   0x555555554889:      je     0x555555554894
+   0x55555555488b:      js     0x55555555489b
+   0x55555555488d:      aesenc xmm1,xmm0
+   0x555555554892:      jmp    0x55555555487d
+   0x555555554894:      aesenclast xmm1,xmm0
+   0x555555554899:      jmp    0x55555555487d
+   0x55555555489b:      ucomisd xmm0,xmm1
+   0x55555555489f:      je     0x5555555548a2
+   0x5555555548a1:      ret    
+   0x5555555548a2:      neg    edi
+   0x5555555548a4:      push   rdi
+   0x5555555548a5:      pop    rax
+   0x5555555548a6:      add    rsi,0x10
+   0x5555555548aa:      call   0x555555554948
+
+
+gdb-peda$ i r $xmm0
+gdb-peda$ info all-registers xmm0
+xmm0           {
+  v4_float = {0x0, 0x0, 0x0, 0x0}, 
+  v2_double = {0x8000000000000000, 0x8000000000000000}, 
+  v16_int8 = {0x48, 0xc1, 0xfd, 0x3, 0xe8, 0x7, 0xfe, 0xff, 0xff, 0x48, 0x85, 0xed, 0x74, 0x20, 0x31, 0xdb}, 
+  v8_int16 = {0xc148, 0x3fd, 0x7e8, 0xfffe, 0x48ff, 0xed85, 0x2074, 0xdb31}, 
+  v4_int32 = {0x3fdc148, 0xfffe07e8, 0xed8548ff, 0xdb312074}, 
+  v2_int64 = {0xfffe07e803fdc148, 0xdb312074ed8548ff}, 
+  uint128 = 0xdb312074ed8548fffffe07e803fdc148
+}
+
+gdb-peda$ i r $xmm1
+gdb-peda$ info all-registers xmm1
+xmm1           {
+  v4_float = {0xc, 0xc, 0xc141, 0x0}, 
+  v2_double = {0x228282, 0x0}, 
+  v16_int8 = {0x41 <repeats 11 times>, 0x47, 0x6f, 0x6f, 0x64, 0x21}, 
+  v8_int16 = {0x4141, 0x4141, 0x4141, 0x4141, 0x4141, 0x4741, 0x6f6f, 0x2164}, 
+  v4_int32 = {0x41414141, 0x41414141, 0x47414141, 0x21646f6f}, 
+  v2_int64 = {0x4141414141414141, 0x21646f6f47414141}, 
+  uint128 = 0x21646f6f474141414141414141414141
+}
+
+
+0x21646f6f474141414141414141414141 ^ 0xdb312074ed8548fffffe07e803fdc148:
+
+gdb-peda$ info all-registers xmm1
+xmm1           {
+  v4_float = {0x5e, 0x0, 0x0, 0x0}, 
+  v2_double = {0x0, 0x8000000000000000}, 
+  v16_int8 = {0x9, 0x80, 0xbc, 0x42, 0xa9, 0x46, 0xbf, 0xbe, 0xbe, 0x9, 0xc4, 0xaa, 0x1b, 0x4f, 0x55, 0xfa}, 
+  v8_int16 = {0x8009, 0x42bc, 0x46a9, 0xbebf, 0x9be, 0xaac4, 0x4f1b, 0xfa55}, 
+  v4_int32 = {0x42bc8009, 0xbebf46a9, 0xaac409be, 0xfa554f1b}, 
+  v2_int64 = {0xbebf46a942bc8009, 0xfa554f1baac409be}, 
+  uint128 = 0xfa554f1baac409bebebf46a942bc8009
+}
+
+
+rsi+0x10 = 0x5555555547a8
+gdb-peda$ x/2xg 0x5555555547a8
+0x5555555547a8: 0x0000000000841f0f      0x8944f6894cea894c
+
+gdb-peda$ i r $xmm0
+xmm0           {
+  v4_float = {0x0, 0x0, 0x7544a60, 0x0}, 
+  v2_double = {0x0, 0x0}, 
+  v16_int8 = {0xf, 0x1f, 0x84, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4c, 0x89, 0xea, 0x4c, 0x89, 0xf6, 0x44, 0x89}, 
+  v8_int16 = {0x1f0f, 0x84, 0x0, 0x0, 0x894c, 0x4cea, 0xf689, 0x8944}, 
+  v4_int32 = {0x841f0f, 0x0, 0x4cea894c, 0x8944f689}, 
+  v2_int64 = {0x841f0f, 0x8944f6894cea894c}, 
+  uint128 = 0x8944f6894cea894c0000000000841f0f
+}
+
+
+[----------------------------------registers-----------------------------------]
+RAX: 0x0 
+RBX: 0x555555755040 ('A' <repeats 11 times>, "Good!")
+RCX: 0xff 
+RDX: 0x7 
+RSI: 0x5555555547a8 --> 0x841f0f 
+RDI: 0xa ('\n')
+RBP: 0x7fffffffddd0 --> 0x7ffff7dd15f8 --> 0x7ffff7dd2c40 --> 0x0 
+RSP: 0x7fffffffdd08 --> 0x7ffff7de7de7 (<_dl_fini+823>: test   r13d,r13d)
+RIP: 0x555555554885 --> 0xe780974ff85cfff 
+R8 : 0x4 
+R9 : 0x3 
+R10: 0x7fffffffdd28 --> 0x7ffff7ffd9d8 --> 0x7ffff7dd7000 --> 0x10102464c457f 
+R11: 0x306 
+R12: 0x555555754dd0 --> 0x5555555546b0 --> 0x7500002009693d80 
+R13: 0x1 
+R14: 0x7fffffffdd10 --> 0x7ffff7ffe168 --> 0x555555554000 --> 0x10102464c457f 
+R15: 0x0
+
+
+ADD RSI+0X10 AGAIN:
+gdb-peda$ x/2xg 0x5555555547b8
+0x5555555547b8: 0xc38348dc14ff41ff      0x8348ea75dd394801
+
+gdb-peda$ i r $xmm0
+xmm0           {
+  v4_float = {0x0, 0xfffffefa, 0x0, 0x0}, 
+  v2_double = {0xfd96e47d6017c020, 0x0}, 
+  v16_int8 = {0xff, 0x41, 0xff, 0x14, 0xdc, 0x48, 0x83, 0xc3, 0x1, 0x48, 0x39, 0xdd, 0x75, 0xea, 0x48, 0x83}, 
+  v8_int16 = {0x41ff, 0x14ff, 0x48dc, 0xc383, 0x4801, 0xdd39, 0xea75, 0x8348}, 
+  v4_int32 = {0x14ff41ff, 0xc38348dc, 0xdd394801, 0x8348ea75}, 
+  v2_int64 = {0xc38348dc14ff41ff, 0x8348ea75dd394801}, 
+  uint128 = 0x8348ea75dd394801c38348dc14ff41ff
+}
+
+
+10 times?
+
+
+0000555555554798
+
+gdb-peda$ dumpmem
+Error: missing argument
+Dump content of a memory region to raw binary file
+Usage:
+    dumpmem file start end
+    dumpmem file mapname
+
+    open memory dump as a BINARY file in IDA. not an ELF.
+
+
+hb *0x000055555555486E
+
+AAAAAAAAAAAGood!
+
+
+```
+gdb-peda$ x/26xg 0x555555554798
+0x555555554798: 0xfffe07e803fdc148      0xdb312074ed8548ff <-- xor key
+0x5555555547a8: 0x0000000000841f0f      0x8944f6894cea894c <-- rd 1 key
+0x5555555547b8: 0xc38348dc14ff41ff      0x8348ea75dd394801 <-- rd 2 key
+0x5555555547c8: 0x5d415c415d5b08c4      0x2e6690c35f415e41 <-- rd 3 key
+0x5555555547d8: 0x0000000000841f0f      0x08ec83480000c3f3 <-- rd 4 key
+0x5555555547e8: 0x000000c308c48348      0x6800732500020001 <-- rd 5 key
+0x5555555547f8: 0x73257b6e6f637469      0x3b031b0100000a7d <-- rd 6 key
+0x555555554808: 0x0000000700000040      0x0000008cfffffdbc <-- rd 7 key
+0x555555554818: 0x000000b4fffffdcc      0x0000005cfffffdec <-- rd 8 key
+0x555555554828: 0x000000ccffffff1c      0x000000ecffffff57 <-- rd 9 key
+0x555555554838: 0x0000010cffffff6c      0x00000154ffffffdc <-- rd 10 key
+0x555555554848: 0x47cf6d49120447e7      0x2846fb67171be9b0 <-- result supposed to be this
+```
+
+0x2846fb67171be9b047cf6d49120447e7
+
+
+0x0000555555554720
+
+
++ keys for each round
+
+
+ld -o solve solve.o
+
+
+0x8944f6894cea894c0000000000841f0f
+0x8348ea75dd394801c38348dc14ff41ff
+0x2e6690c35f415e415d415c415d5b08c4
+0x08ec83480000c3f30000000000841f0f
+0x6800732500020001000000c308c48348
+0x3b031b0100000a7d73257b6e6f637469
+0x0000008cfffffdbc0000000700000040
+0x0000005cfffffdec000000b4fffffdcc
+0x000000ecffffff57000000ccffffff1c
+0x00000154ffffffdc0000010cffffff6c
+
+ffffff1c
+
+
+
+➜  void gdb -q ./solve                                          
+Reading symbols from ./solve...(no debugging symbols found)...done.
+gdb-peda$ r
+Starting program: /home/vagrant/CTFs/hitconctf17/void/solve 
+
+Program received signal SIGTRAP, Trace/breakpoint trap.
+[----------------------------------registers-----------------------------------]
+RAX: 0x0 
+RBX: 0x0 
+RCX: 0x0 
+RDX: 0x0 
+RSI: 0x0 
+RDI: 0x0 
+RBP: 0x0 
+RSP: 0x7fffffffdef0 --> 0x1 
+RIP: 0x400210 --> 0x0 
+R8 : 0x0 
+R9 : 0x0 
+R10: 0x0 
+R11: 0x0 
+R12: 0x0 
+R13: 0x0 
+R14: 0x0 
+R15: 0x0
+EFLAGS: 0x202 (carry parity adjust zero sign trap INTERRUPT direction overflow)
+[-------------------------------------code-------------------------------------]
+   0x400201 <_start+193>:       movdqu xmm0,XMMWORD PTR ds:0x400130
+   0x40020a <_start+202>:       aesdeclast xmm1,xmm0
+   0x40020f <_start+207>:       int3   
+=> 0x400210:    add    BYTE PTR [rax],al
+   0x400212:    add    BYTE PTR [rax],al
+   0x400214:    add    BYTE PTR [rax],al
+   0x400216:    add    BYTE PTR [rax],al
+   0x400218:    add    BYTE PTR [rax],al
+[------------------------------------stack-------------------------------------]
+0000| 0x7fffffffdef0 --> 0x1 
+0008| 0x7fffffffdef8 --> 0x7fffffffe15a ("/home/vagrant/CTFs/hitconctf17/void/solve")
+0016| 0x7fffffffdf00 --> 0x0 
+0024| 0x7fffffffdf08 --> 0x7fffffffe184 ("STY=2808.pts-0.vagrant")
+0032| 0x7fffffffdf10 --> 0x7fffffffe19b ("TERM=screen.xterm-256color")
+0040| 0x7fffffffdf18 --> 0x7fffffffe1b6 ("TERMCAP=SC|screen.xterm-256color|VT 100/ANSI X3.64 virtual terminal:\\\n\t:DO=\\E[%dB:LE=\\E[%dD:RI=\\E[%dC:UP=\\E[%dA:bs:bt=\\E[Z:\\\n\t:cd=\\E[J:ce=\\E[K:cl=\\E[H\\E[J:cm=\\E[%i%d;%dH:ct=\\E[3g:\\\n\t:do=^J:nd=\\E[C:pt:"...)
+0048| 0x7fffffffdf20 --> 0x7fffffffe6d0 ("WINDOW=8")
+0056| 0x7fffffffdf28 --> 0x7fffffffe6d9 ("SHELL=/usr/bin/zsh")
+[------------------------------------------------------------------------------]
+Legend: code, data, rodata, value
+Stopped reason: SIGTRAP
+0x0000000000400210 in ?? ()
+gdb-peda$ p $xmm1.uint128
+$1 = 0x214449646c6975425f6e695f65646f63

