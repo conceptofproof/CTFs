@@ -20,11 +20,6 @@ def editNote(idx, content):
 def view():
     r.sendlineafter(">>", "4")
     return r.recvuntil("1)")
-def changeAuthor():
-    r.sendlineafter(">>", "5")
-
-def exit():
-    r.sendlineafter(">>", "6")
 
 def flip(addr):
     r.sendlineafter(">>", "1337")
