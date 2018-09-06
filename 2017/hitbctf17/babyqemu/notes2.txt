@@ -1,0 +1,24 @@
+if a file ends in "z" in linux, it usually means it is a compressed archive!
+```
+$file vmlinuz-4.8.0-52-generic
+`vmlinuz-4.8.0-52-generic: Linux kernel x86 boot executable bzImage, version 4.8.0-52-generic (buildd@lgw01-59) #55~16.04.1-Ubuntu SMP Fri A, RO-rootFS, swap_dev 0x6, Normal VGA`
+```
+
+we want to debug `qemu-system-x86_64` since this is what loads and runs vmlinuz (the compressed linux kernel)
+    1) sudo gdb -q ./qemu-system-x86_64
+    2) run ./launch.sh
+    3) gdb-peda$ attach 17333
+
+in `launch.sh`, we can see that it loads a PCI device called `hitb`
+➜  babyqemu-redo cat launch.sh
+#! /bin/sh
+./qemu-system-x86_64 \
+-initrd ./rootfs.cpio \
+-kernel ./vmlinuz-4.8.0-52-generic \
+-append 'console=ttyS0 root=/dev/ram oops=panic panic=1' \
+-monitor /dev/null \
+-m 64M --nographic  -L ./dependency/usr/local/share/qemu \
+-L pc-bios \
+-device hitb,id=vda
+
+
